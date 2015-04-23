@@ -1,212 +1,302 @@
-#include <iostream>
+// Jason Tan
+// OS project - version 2
+
+#include<iostream>
+#include<vector>
+#include<queue>
+#include<windows.h>
+#include "Job.h"
+#include "MemoryManager.h"
+#include "cpuScheduler.h"
+
 
 using namespace std;
 
-void printLinkedList();
-void swapper(int jobNo, int jobSize, int transferDir);
-void siodrum(int jobNum, int jobSize, int startCoreAddr, int transferDir);
-void scheduler();
-void display(struct jobTableEntry *head);
-struct jobTableEntry *searchForFreeSpace(struct jobTableEntry *head, int requiredSize);
+//Function Prototypes
+void swapper(long);
+void update();
+void bookKeeper(long);
+void removeJob(long);
+void getIoJob();
+void getJobByNum(long);
+long notInMem();
+void loadAndRun(long&, long []);
+void ontrace();
+void offtrace();
+void siodisk(long jobnum);
+void siodrum(long jobnum, long jobsize, long coreaddress, long direction);
 
-//Struct used to store information about each job
-	struct job
-	{
-		int jobNo;
-		int priority;
-		int jobSize;
-		long maxCpuTime;
-		long currentTime;
-		job *next;
-	} ;
 
-	struct jobTableEntry
-	{
-		int jobNo;
-		int startingAddr;
-		int jobSize;
-		jobTableEntry *next;
-	};
+//Global Variables
+vector<Job> jobsList; // Our list of jobs currently in the system
+long runningJob = -1; //Location of the job in jobsList that is running in CPU
+long ioRunningJob = 0;//Location of the job in jobsList that is currently doing IO
+MemoryManager memory; // Memory table object
+cpuScheduler cpu; // CPU scheduler object
+queue<long> ioQueue; //IO queue. Contains jobnumbers
+long inTransit[2];  // Location and status of job being swapped (0=JobNum 1 = direction of transport(0- to Core 1- To Drum))
+bool drumBusy=false; // If a job is being swapped
 
-	job *root;
-	job *traverser;
-	jobTableEntry *curr;
-	jobTableEntry *jobTableRoot;
-	jobTableEntry *jobTablePrev;
 
-	int listCounter;
-	int freeSpace;
-	int usedSpace;
-	int nextFreeSpaceMarker;
-	int freeSpaceTable [100] = { };
-	const int CORE_TO_DRUM = 1;
-	const int DRUM_TO_CORE = 0;
+void startup(){}
 
-// Allows initialization of (static) system variables declared above.
-// Called once at start of the simulation.
-void startup()
+/**************************
+    Main Interrupt Handlers
+*****************************/
+
+// Crint 
+// Places incoming jobs on job list
+void Crint (long &a, long p[])
 {
-	listCounter = 0; 
-	freeSpace = 100;
-	usedSpace = 0;
+    bookKeeper(p[5]);
+    // Add new job to Joblist
+    jobsList.push_back(*new Job(p[1],p[2],p[3],p[4],p[5]));
 
-	root = new job;		//creates a new node...or our first node which is at the begining
-	root->next = NULL;	//tells what to point to 
-	traverser = root;	//points to the current node
-
-	jobTableRoot = new jobTableEntry;
-	jobTableRoot->next = NULL;
-	jobTablePrev = jobTableRoot;
-	curr = jobTableRoot;
+    swapper(p[1]);
+    runningJob = cpu.schedule(jobsList);
+    loadAndRun(a,p);
 }
 
-// INTERRUPT HANDLERS
-// The following 5 functions are the interrupt handlers. The arguments
-// passed from the environment are detailed with each function below.
-// See RUNNING A JOB, below, for additional information
-
-
-// Indicates the arrival of a new job on the drum.
-void Crint (int &a, int p[])
+// Dskint
+// Interrupt when job finishes doing IO.
+void Dskint (long &a, long p[])
 {
-	if (listCounter <=50 ){	//test for maximum capacity
-		traverser->jobNo = p[1];
-		traverser->priority = p[2];
-		traverser->jobSize = p[3];
-		traverser->maxCpuTime = p[4];
-		traverser->currentTime = p[5];
-		listCounter++;
-		traverser->next = new job;		//creates a new node
-		traverser = traverser->next;	//points to the new node
-		traverser->next = NULL;			//new node is now the end
-	}
-	//printLinkedList();
-	swapper(p[1], p[3], DRUM_TO_CORE);
-}
+    bookKeeper(p[5]);
+    getIoJob(); // look for first job on queue (current IO job)
 
+    // Subtract IO left
+    jobsList[ioRunningJob].setIoLeft(jobsList[ioRunningJob].getIoLeft()-1);
 
-void Dskint (int &a, int p[])
-{
-    cout<<"OS OUTPUT: i/o transfer from disk and memory has completed";
-    // Disk interrupt.
-    // At call : p [5] = current time
-}
-
-void Drmint (int &a, int p[])
-{
-	//cout<<"OS OUTPUT: drum to memory has completed";
-    // Drum interrupt.
-    // At call : p [5] = current time
-    p[2] = 0;
-    a = 2;
-}
-
-void Tro (int &a, int p[])
-{
-	cout<<"OS OUTPUT: requesting to be terminated";
-    if (p[5] == p[4]){
-   		cout<<p[1]<<" job completed";
+    // Unblock and unlatch if there are no more IO for that job
+    if(jobsList[ioRunningJob].getIoLeft()== 0)
+    {
+        jobsList[ioRunningJob].setBlocked(0);
+        jobsList[ioRunningJob].setLatched(0);
     }
-    //swapper(p[1], p[3], , CORE_TO_DRUM);
+
+    // If the job was killed remover from job list
+    if(jobsList[ioRunningJob].isKilled()== 1 && jobsList[ioRunningJob].getIoLeft()==0 && jobsList[ioRunningJob].isInMemory()==1)
+        removeJob(ioRunningJob);
+
+    ioQueue.pop();  //remove jobnumber from queue
+
+    // Schedule next job on queue to do IO
+    if(!ioQueue.empty())
+    {
+        getIoJob();
+        siodisk(jobsList[ioRunningJob].getNumber());
+    }
+
+    swapper((notInMem()));
+    runningJob = cpu.schedule(jobsList);
+    loadAndRun(a,p);
 }
 
-void Svc(int &a, int p[])
-{     
-	cout<<"OS OUTPUT: requesting svc";
-	if(a == 5){
-		// a = 5 => job has terminated
-	} else if(a == 6){
-		// a = 6 => job requests disk i/o
-	} else if(a == 7){
-		//job wants to be blocked until all its pending
-      	// I/O requests are completed
-	}
-}
-
-//The swapper just moves jobs in and out of memory based on the parameters passed
-//usually after the swapper has completed its work with sos, the drumint is called
-void swapper(int jobNo, int jobSize, int transferDir)
+// Drmint
+// Interrupt that occurs after a successful swap in or out.
+void Drmint (long &a, long p[])
 {
-	if (transferDir == DRUM_TO_CORE){			//if moving from drum to core 
-		if (jobSize <= freeSpace){				//if there is enough free space available in memory
-			if (freeSpace == 100){				//if nothing is in memory as yet then the starting addr is going to be
-				curr->jobNo = jobNo;			//basically 0...unlike the others which will be previous job + prev size
-				curr->startingAddr = jobTablePrev->startingAddr;
-				curr->jobSize = jobSize;
-			}else{
-				curr->jobNo = jobNo;
-				curr->startingAddr = jobTablePrev->startingAddr + jobTablePrev->jobSize;
-				curr->jobSize = jobSize;
-			}
-			jobTablePrev = curr;
-			curr->next = new jobTableEntry;
-			curr = curr->next;
-			curr->next = NULL;
-			siodrum(jobNo, jobSize, curr->startingAddr, transferDir);
-			display(jobTableRoot);
-		}else{												//if there is not enough space in memory
-			//first free space >= size of job
-			//NOTE: this is just getting the first space in memory >= jobsize...not taking into consideration the status of it i.e running or not
-			//a check to see the status can later be implemented and then re check for another job in the series starting the ptr from there
-			jobTableEntry *entryToDelete = searchForFreeSpace(jobTableRoot, jobSize);	//returns the job which is >= to the jobsize required
-			int tempStartingAddr = entryToDelete->startingAddr;
-			siodrum(entryToDelete->jobNo, entryToDelete->jobSize, entryToDelete->startingAddr, CORE_TO_DRUM);
-			siodrum(jobNo, jobSize, tempStartingAddr, DRUM_TO_CORE);
-			//add to the freespace table
-		}
-		freeSpace = freeSpace - jobTablePrev->jobSize;		//calculates the total amount of free space left in the system
-		usedSpace = usedSpace + jobTablePrev->jobSize;		//calculates how much used 
-	}
-	if (transferDir == CORE_TO_DRUM){
-		cout<<"requries immediate transfer from core to drum";
-		//need to finish 
-	}
+    //Job has completed the swap so in transit should be free.
+    drumBusy = false;
+    bookKeeper(p[5]);
+
+    // swap in. Set so that job is in memory
+    long index = memory.findJob(jobsList,inTransit[0]);
+    jobsList[index].setInMemory(true);
+
+    // look for a job in the list not in memory and put in memory
+    long jobNum = notInMem();
+    if(jobNum!=-1 && !jobsList[index].isInMemory())
+        swapper(jobNum);
+
+    swapper((notInMem()));
+    runningJob = cpu.schedule(jobsList);
+    loadAndRun(a,p);
 }
 
-struct jobTableEntry *searchForFreeSpace(struct jobTableEntry *head, int requiredSize)
+// Tro
+// Occurs during an abnormal termination of jobs
+void Tro (long &a, long p[])
 {
-	jobTableEntry *curr = head;
-	while(curr){
-		if (curr->jobSize >= requiredSize) return curr;
-		curr = curr->next;
-	}
-	cout<<"No memory large enough to house the incoming job"<<endl;
+    bookKeeper(p[5]);
+
+    // if no io, terminate, or else, set to terminate after its i/o finishes
+    if (jobsList[runningJob].getIoLeft() == 0)
+        removeJob(runningJob);
+    else
+        jobsList[runningJob].setKilled(1);
+
+    swapper((notInMem()));
+    runningJob = cpu.schedule(jobsList);
+    loadAndRun(a,p);
 }
 
-void scheduler()
+// Svc
+// Service request
+void Svc(long &a, long p[])
 {
+    bookKeeper(p[5]);
 
+    switch(a){
+        // a job requested to terminate. Remove from list if there is no outstanding i/o
+        // else, set to be killed later
+        case 5:
+            if (jobsList[runningJob].getIoLeft() == 0 && jobsList[runningJob].isKilled()==1)
+                removeJob(runningJob);
+            else
+                jobsList[runningJob].setKilled(1);
+            break;
+
+        // a job requested to do i/o
+        case 6:
+
+            // if the queue is empty, immediately do i/o
+            if(ioQueue.empty())
+                siodisk(jobsList[runningJob].getNumber());
+
+            // put job number on i/o queue and set as latched
+            ioQueue.push(jobsList[runningJob].getNumber());
+            jobsList[runningJob].setIoLeft(jobsList[runningJob].getIoLeft()+1);
+            jobsList[runningJob].setLatched(1);
+
+            // set ioRunningJob to the index
+            getIoJob();
+
+            break;
+
+        // job requested to be blocked
+        case 7:
+            if(jobsList[runningJob].getIoLeft()!= 0)
+                jobsList[runningJob].setBlocked(1);
+            break;
+
+        default:
+            cout<<"ERROR: The value of 'a' is invalid!"<<endl;
+    }
+
+    swapper((notInMem()));
+    runningJob = cpu.schedule(jobsList);
+    loadAndRun(a,p);
 }
-
-//used to display the entire free space table
-void display(struct jobTableEntry *head) 
-{ 
-	jobTableEntry *list = head;
-	while(list) { 
-		cout << list->startingAddr << " "<<list->jobSize<<endl; 
-		list = list->next; 
-	} 
-	cout << endl; 
-	cout << endl; 
-} 
-
-void printLinkedList()
+/******************************
+    Other functions
+*******************************/
+// BookKeeper function
+// Keeps track of remaining Max CPU Time
+// Called when a job first enters an interrupt
+void bookKeeper(long currentTime)
 {
-	traverser = root;
-	if ( traverser != 0 ) { //Makes sure there is a place to start
-	  while ( traverser->next != 0 ) {
-	    cout<<traverser->jobNo<<" ";
-		cout<<traverser->priority<<" ";
-		cout<<traverser->jobSize<<" ";
-		cout<<traverser->maxCpuTime<<" ";
-		cout<<traverser->currentTime<<" ";
-	    traverser = traverser->next;
-	  }
-	cout<<traverser->jobNo<<" ";
-	cout<<traverser->priority<<" ";
-	cout<<traverser->jobSize<<" ";
-	cout<<traverser->maxCpuTime<<" ";
-	cout<<traverser->currentTime<<" ";
-	}
+    // If a job was running, subtract the amount of time it spent in the CPU
+    // Uses a job's currentTime and enteredTime to figure this out
+    // Remove that time from Max CPU time to see how much time it has left
+    if (runningJob!= -1)
+    {
+        long value = currentTime - jobsList[runningJob].getEnteredTime();
+        jobsList[runningJob].setCurrentTime(jobsList[runningJob].getMaxCpu());
+        jobsList[runningJob].setMaxCpu(jobsList[runningJob].getMaxCpu() - value);
+    }
 }
 
+// Update
+// Updataes memory table
+void update()
+{
+    // scans job list to see if there are any jobs to remove or add to memoty
+    for(long i=0; i<jobsList.size(); i++)
+    {
+        if(jobsList[i].isInMemory()==1)
+            memory.setJob(i,jobsList);
+        if(jobsList[i].isKilled()==1 && jobsList[i].getIoLeft()==0)
+            removeJob(i);
+    }
+}
+
+// getIoJob
+// Sets ioRunningJob to the index of the job
+// that is waiting to do i/o in the front of the IOqueue.
+void getIoJob()
+{
+    for(long i=0; i< jobsList.size(); i++)
+    {
+        if(jobsList[i].getNumber() == ioQueue.front())
+            ioRunningJob = i;
+    }
+}
+
+// removeJob
+// Removes a job from jobsList by using its index.
+void removeJob(long index)
+{
+    memory.eraseJob(jobsList[index].getLocation());
+    jobsList.erase(jobsList.begin()+index);
+}
+
+// Swapper
+// Swaps jobs from Drum to Memory or Memory to Drum
+// Updates memory accordingly
+void swapper(long jobNum)
+{
+    if (!drumBusy && jobNum!=-1)
+    {
+        // update memory
+        update();
+
+        // look for a job in memory that can fit in the table
+        long index = memory.findJob(jobsList,jobNum);
+        long i =memory.MemTable((jobsList[index].getSize()));
+
+        //if it can fit
+        if(i<100 && i >=0)
+        {
+            // if the job was not already in memory, set it in
+            if(jobsList[index].isInMemory()==0)
+            {
+                jobsList[index].setLocation(i);
+                siodrum(jobsList[index].getNumber(),jobsList[index].getSize(),jobsList[index].getLocation(),0);
+                inTransit[0]=jobNum;
+                inTransit[1]=0;
+                memory.setTable(jobsList,index,i);
+                drumBusy=true; // swapper in now busy
+            }
+        }
+    }
+}
+
+// notInMem
+// Returns the job number of a job from the list that's not in memory.
+long notInMem()
+{
+    long index=0,time=10000000000;
+    for(long i=0; i<jobsList.size(); i++)
+    {
+        if(jobsList[i].isInMemory()==0)
+            if(memory.MemTable(i)<100)
+                if(jobsList[i].getMaxCpu()<time){
+                    time=jobsList[i].getMaxCpu();
+                    index=i;
+                }
+    }
+    if(index!=0)
+        return jobsList[index].getNumber();
+    return -1;
+}
+
+// loadAndrun
+// The dispatcher
+void loadAndRun(long &a, long p[])
+{
+    // If the scheduler did not find a job, set the cpu idle
+    if(!jobsList[runningJob].isInMemory() || jobsList[runningJob].isBlocked() || runningJob == -1)
+        a=1;
+
+    // if there was a job scheduled to run, set p[] accordingly and set CPU to active
+    else
+    {
+        a = 2;
+        p[2] = jobsList[runningJob].getLocation();
+        p[3] = jobsList[runningJob].getSize();
+        p[4] = jobsList[runningJob].getMaxCpu();
+        jobsList[runningJob].setEnteredTime(p[5]);
+        jobsList[runningJob].setInCpu(true);
+    }
+}
