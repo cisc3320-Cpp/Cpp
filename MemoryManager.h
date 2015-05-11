@@ -33,8 +33,9 @@ public:
     void eraseJob(long location) {
         mem[location]=0;
     }
-        // Gets the size of the job and sets
-        // that its size in where it is stored in mem
+
+     // Gets the size of the job and sets
+     // that its size in where it is stored in mem
     void setTable(vector<Job> jobsList, long index,long i) {
         mem[i]= jobsList[index].getSize();
     }
