@@ -5,7 +5,7 @@
 using namespace std;
 
 // Job Class
-//Contains all the information about a specific job.
+// Contains all the information about a specific job.
 class Job {
 private:
     long  number;
@@ -24,7 +24,7 @@ private:
 
 
 public:
-    //Constructor with no parameters sets the job Number number to -1
+    // Constructor with no parameters sets the job Number number to -1
     Job() {
         number = -1;
         priority=0;
@@ -40,7 +40,7 @@ public:
         inCpu=false;
 
     }
-    //Constructor receives five parameters from the p[] and sets them accordignly.
+    // Constructor receives five parameters from the p[] and sets them accordingly.
     Job(long number, long priority, long size, long maxCpu, long enteredTime) {
         this->number=number;
         this->priority=priority;
@@ -65,7 +65,6 @@ public:
     void setKilled(bool kill) {
         this->kill = kill;
     }
-
 
     bool isBlocked() {
         return blocked;
