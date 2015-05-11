@@ -120,7 +120,7 @@ void Tro (long &a, long p[])
 {
     bookKeeper(p[5]);
 
-    // if no io, terminate, or else, set to terminate after its i/o finishes
+    // if no i/o, terminate, or else, set to terminate after its i/o finishes
     if (jobsList[runningJob].getIoLeft() == 0)
         removeJob(runningJob);
     else
@@ -198,10 +198,10 @@ void bookKeeper(long currentTime)
 }
 
 // Update
-// Updataes memory table
+// Updates memory table
 void update()
 {
-    // scans job list to see if there are any jobs to remove or add to memoty
+    // scans job list to see if there are any jobs to remove or add to memory
     for(long i=0; i<jobsList.size(); i++)
     {
         if(jobsList[i].isInMemory()==1)
