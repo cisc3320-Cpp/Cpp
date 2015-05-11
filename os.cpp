@@ -9,7 +9,6 @@
 #include "MemoryManager.h"
 #include "cpuScheduler.h"
 
-
 using namespace std;
 
 //Function Prototypes
@@ -36,6 +35,7 @@ cpuScheduler cpu; // CPU scheduler object
 queue<long> ioQueue; //IO queue. Contains jobnumbers
 long inTransit[2];  // Location and status of job being swapped (0=JobNum 1 = direction of transport(0- to Core 1- To Drum))
 bool drumBusy=false; // If a job is being swapped
+
 
 void startup(){}
 
