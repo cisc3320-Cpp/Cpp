@@ -9,6 +9,7 @@
 #include "MemoryManager.h"
 #include "cpuScheduler.h"
 
+
 using namespace std;
 
 //Function Prototypes
@@ -27,14 +28,15 @@ void siodrum(long jobnum, long jobsize, long coreaddress, long direction);
 
 
 //Global Variables
-vector<Job> jobsList; // Our list of jobs currently in the system
-long runningJob = -1; //Location of the job in jobsList that is running in CPU
-long ioRunningJob = 0;//Location of the job in jobsList that is currently doing IO
-MemoryManager memory; // Memory table object
-cpuScheduler cpu; // CPU scheduler object
-queue<long> ioQueue; //IO queue. Contains jobnumbers
-long inTransit[2];  // Location and status of job being swapped (0=JobNum 1 = direction of transport(0- to Core 1- To Drum))
-bool drumBusy=false; // If a job is being swapped
+vector<Job> jobsList;    // Our list of jobs currently in the system
+long runningJob = -1;    // Location of the job in jobsList that is running in CPU
+long ioRunningJob = 0;   // Location of the job in jobsList that is currently doing I/O
+MemoryManager memory;    // Memory table object
+cpuScheduler cpu;        // CPU scheduler object
+queue<long> ioQueue;     // I/O queue. Contains job numbers
+long inTransit[2];       // Location and status of job being swapped (0=JobNum 1 = direction of transport(0- to Core 1- To Drum))
+bool drumBusy=false;     // If a job is being swapped
+int jobTable = 0;          // counter used to keep track of jobs on the jobtable
 
 
 void startup(){}
@@ -47,6 +49,13 @@ void startup(){}
 // Places incoming jobs on job list
 void Crint (long &a, long p[])
 {
+    jobTable++;  // increments JobTable counter
+
+    // if jobTable is full at 50, it calls swap function
+    if (jobTable => 50)
+          swap to drum   // RAYMOND, change this so it points to your swap function
+
+
     bookKeeper(p[5]);
     // Add new job to Joblist
     jobsList.push_back(*new Job(p[1],p[2],p[3],p[4],p[5]));
@@ -57,29 +66,29 @@ void Crint (long &a, long p[])
 }
 
 // Dskint
-// Interrupt when job finishes doing IO.
+// Interrupt when job finishes doing I/O.
 void Dskint (long &a, long p[])
 {
     bookKeeper(p[5]);
-    getIoJob(); // look for first job on queue (current IO job)
+    getIoJob();  // look for first job on queue (current I/O job)
 
-    // Subtract IO left
+    // Subtract I/O left
     jobsList[ioRunningJob].setIoLeft(jobsList[ioRunningJob].getIoLeft()-1);
 
-    // Unblock and unlatch if there are no more IO for that job
+    // Unblock and unlatch if there are no more I/O for that job
     if(jobsList[ioRunningJob].getIoLeft()== 0)
     {
         jobsList[ioRunningJob].setBlocked(0);
         jobsList[ioRunningJob].setLatched(0);
     }
 
-    // If the job was killed remover from job list
+    // If the job was killed, remove it from job list
     if(jobsList[ioRunningJob].isKilled()== 1 && jobsList[ioRunningJob].getIoLeft()==0 && jobsList[ioRunningJob].isInMemory()==1)
         removeJob(ioRunningJob);
 
     ioQueue.pop();  //remove jobnumber from queue
 
-    // Schedule next job on queue to do IO
+    // Schedule next job on queue to do I/O
     if(!ioQueue.empty())
     {
         getIoJob();
@@ -228,6 +237,7 @@ void removeJob(long index)
 {
     memory.eraseJob(jobsList[index].getLocation());
     jobsList.erase(jobsList.begin()+index);
+    jobTable--;  // removes job from jobTable counter
 }
 
 // Swapper
@@ -245,7 +255,7 @@ void swapper(long jobNum)
         long i =memory.MemTable((jobsList[index].getSize()));
 
         //if it can fit
-        if(i<100 && i >=0)
+        if(i < 100 && i >= 0)
         {
             // if the job was not already in memory, set it in
             if(jobsList[index].isInMemory()==0)
