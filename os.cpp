@@ -54,11 +54,11 @@ void Crint (long &a, long p[])
     jobTable++;  // increments JobTable counter
 
     // if jobTable is full at 50, it calls swap function
-    if (jobTable >= 50){
+    if (jobTable == 50){
         //If jobTable is filled at >= 50, then there is no room in JobTable
         noRoomInJt = true;
         //Swaps job at back of I/O from Core out to Drum
-        swapper(dummyVariable, noRoomInJt);
+        swapper(p[1], noRoomInJt);
 
         //After swapper returns, handle the newest job that just came in from the drum.
     }
@@ -115,6 +115,7 @@ void Drmint (long &a, long p[])
     drumBusy = false;
     bookKeeper(p[5]);
 
+    if(whichSwap[0] == 0){
     // swap in. Set so that job is in memory
     long index = memory.findJob(jobsList,inTransit[0]);
     jobsList[index].setInMemory(true);
@@ -123,6 +124,10 @@ void Drmint (long &a, long p[])
     long jobNum = notInMem();
     if(jobNum!=-1 && jobsList[index].isInMemory() == false)
         swapper(jobNum, noRoomInJt);
+    }
+    if(whichSwap[0] == 1){
+        removeJob(victimForSpace);
+    }
 
     swapper((notInMem()), noRoomInJt);
     runningJob = cpu.schedule(jobsList);
@@ -170,7 +175,7 @@ void Svc(long &a, long p[])
                 siodisk(jobsList[runningJob].getNumber());
 
             // put job number on i/o queue and set as latched
-            ioQueue.push_front(jobsList[runningJob].getNumber());
+            ioQueue.push_back(jobsList[runningJob].getNumber());
             jobsList[runningJob].setIoLeft(jobsList[runningJob].getIoLeft()+1);
             jobsList[runningJob].setLatched(true);
 
@@ -281,18 +286,18 @@ void swapper(long jobNum, bool makeSpace)
         }
         /* If check from Crint indicates that JobTable is full */
         if(makeSpace == true){
-            for(long i=0; i< jobsList.size(); i++) //Looks for a matching job on jobsList as job on back of ioQueue
+            for(long i=0; i< jobsList.size(); i++){ //Looks for a matching job on jobsList as job on back of ioQueue
                 if(jobsList[i].getNumber() == ioQueue.back())
                     victimForSpace = i;
-            if(jobsList[victimForSpace].isKilled()== true && jobsList[victimForSpace].getIoLeft()==0 && jobsList[victimForSpace].isInMemory()== true){
+            }
+            if(jobsList[victimForSpace].isBlocked()== false && jobsList[victimForSpace].getIoLeft()== 0 && jobsList[victimForSpace].isInMemory()== true && jobsList[victimForSpace].isLatched() == false){
                     ioQueue.pop_back(); //pops the job at back of ioQueue
                     whichSwap[0] = 1;
                     siodrum(jobsList[victimForSpace].getNumber(),jobsList[victimForSpace].getSize(),jobsList[victimForSpace].getLocation(),1);
-                    removeJob(victimForSpace);
                     inTransit[0] = victimForSpace;   //What job is inTransit
                     inTransit[1] = 1;  //In transit from Core to Drum
-                    drumBusy=true; //swapper is now busy
                     noRoomInJt = false; //Indicate that JobTable is no longer full
+                    drumBusy=true; //swapper is now busy
             }
         }
     }
