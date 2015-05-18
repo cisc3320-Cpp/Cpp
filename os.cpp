@@ -54,14 +54,15 @@ void Crint (long &a, long p[])
     jobTable++;  // increments JobTable counter
 
     // if jobTable is full at 50, it calls swap function
-    if (jobTable == 50){
+    if (jobTable >= 50){
         //If jobTable is filled at >= 50, then there is no room in JobTable
         noRoomInJt = true;
         //Swaps job at back of I/O from Core out to Drum
-        swapper(p[1], noRoomInJt);
+        swapper(dummyVariable, noRoomInJt);
 
         //After swapper returns, handle the newest job that just came in from the drum.
     }
+    if(jobTable < 50){
         bookKeeper(p[5]);
         // Add new job to Joblist
         jobsList.push_back(*new Job(p[1],p[2],p[3],p[4],p[5]));
@@ -69,6 +70,7 @@ void Crint (long &a, long p[])
         swapper(p[1], noRoomInJt);
         runningJob = cpu.schedule(jobsList);
         loadAndRun(a,p);
+    }
 
 }
 
@@ -115,18 +117,22 @@ void Drmint (long &a, long p[])
     drumBusy = false;
     bookKeeper(p[5]);
 
-    if(whichSwap[0] == 0){
-    // swap in. Set so that job is in memory
-    long index = memory.findJob(jobsList,inTransit[0]);
-    jobsList[index].setInMemory(true);
+    if(jobTable < 50){
+        // swap in. Set so that job is in memory
+        long index = memory.findJob(jobsList,inTransit[0]);
+        jobsList[index].setInMemory(true);
 
-    // look for a job in the list not in memory and put in memory
-    long jobNum = notInMem();
-    if(jobNum!=-1 && jobsList[index].isInMemory() == false)
-        swapper(jobNum, noRoomInJt);
+        // look for a job in the list not in memory and put in memory
+        long jobNum = notInMem();
+        if(jobNum!=-1 && jobsList[index].isInMemory() == false){
+            jobTable++;
+            swapper(jobNum, noRoomInJt);
+        }
     }
-    if(whichSwap[0] == 1){
+    if(jobTable >= 50){
+        noRoomInJt = true;
         removeJob(victimForSpace);
+        swapper(dummyVariable, noRoomInJt);
     }
 
     swapper((notInMem()), noRoomInJt);
@@ -259,7 +265,7 @@ void swapper(long jobNum, bool makeSpace)
 {
     if (!drumBusy && jobNum!=-1)
     {
-        /* If check from Crint indicates that JobTable is not full */
+        /* If the check from Crint indicates that JobTable is not full */
         if(makeSpace == false){
             // update memory
             update();
@@ -284,13 +290,12 @@ void swapper(long jobNum, bool makeSpace)
                 }
             }
         }
-        /* If check from Crint indicates that JobTable is full */
-        if(makeSpace == true){
+        /* If the check from Crint indicates that JobTable is full */
+        else if(makeSpace == true && jobTable >= 50){
             for(long i=0; i< jobsList.size(); i++){ //Looks for a matching job on jobsList as job on back of ioQueue
                 if(jobsList[i].getNumber() == ioQueue.back())
                     victimForSpace = i;
             }
-            if(jobsList[victimForSpace].isBlocked()== false && jobsList[victimForSpace].getIoLeft()== 0 && jobsList[victimForSpace].isInMemory()== true && jobsList[victimForSpace].isLatched() == false){
                     ioQueue.pop_back(); //pops the job at back of ioQueue
                     whichSwap[0] = 1;
                     siodrum(jobsList[victimForSpace].getNumber(),jobsList[victimForSpace].getSize(),jobsList[victimForSpace].getLocation(),1);
@@ -298,7 +303,6 @@ void swapper(long jobNum, bool makeSpace)
                     inTransit[1] = 1;  //In transit from Core to Drum
                     noRoomInJt = false; //Indicate that JobTable is no longer full
                     drumBusy=true; //swapper is now busy
-            }
         }
     }
 }
